@@ -1,0 +1,210 @@
+require 'ecell/phonyem/expr/parser_utils'
+
+module ECell
+  module Phonyem
+    module Expr
+      grammar ExpressionProcessScript
+        rule expression
+          ws head:term ws
+          tail:((op:'+' ws term ws) / (op:'-' ws term ws))* {
+            def ast_node
+              left_elem = Utils.find_ast_node_in_cst(head)
+              tail.elements.each do |group|
+                left_elem = [
+                  group.op.text_value.to_sym,
+                  left_elem,
+                  Utils.find_ast_node_in_cst(group.term)
+                ]
+              end
+              left_elem
+            end
+          }
+        end
+
+        rule term
+          head:power ws
+          tail:((op:'*' ws power ws) / (op:'/' power ws))* {
+            def ast_node
+              left_elem = Utils.find_ast_node_in_cst(head)
+              tail.elements.each do |group|
+                left_elem = [
+                  group.op.text_value.to_sym,
+                  left_elem,
+                  Utils.find_ast_node_in_cst(group.power)
+                ]
+              end
+              left_elem
+            end
+          }
+        end
+
+        rule power
+          head:factor ws
+          tail:('^' ws factor ws)* {
+            def ast_node
+              left_elem = Utils.find_ast_node_in_cst(head)
+              tail.elements.each do |group|
+                left_elem = [
+                  :^,
+                  left_elem,
+                  Utils.find_ast_node_in_cst(group.factor)
+                ]
+              end
+              left_elem
+            end
+          }
+        end
+
+        rule factor
+          call_func / system_func / variable / constant / group / identifier / negative
+          # {
+          #   def ast_node
+          #     elements[0].ast_node
+          #   end
+          # }
+        end
+
+        rule builtin_func_name
+          "eq"
+          / "neq"
+          / "gt"
+          / "lt"
+          / "geq"
+          / "leq"
+          / "and"
+          / "or"
+          / "xor"
+          / "not"
+          / "abs"
+          / "sqrt"
+          / "pow"
+          / "exp"
+          / "log10"
+          / "log"
+          / "floor"
+          / "ceil"
+          / "sin"
+          / "cos"
+          / "tan"
+          / "sinh"
+          / "cosh"
+          / "tanh"
+          / "asin"
+          / "acos"
+          / "atan"
+          / "fact"
+          / "asinh"
+          / "acosh"
+          / "atanh"
+          / "asech"
+          / "acsch"
+          / "acoth"
+          / "sech"
+          / "csch"
+          / "coth"
+          / "asec"
+          / "acsc"
+          / "acot"
+          / "sec"
+          / "csc"
+          / "cot"
+        end
+
+        rule call_func
+          func_name:builtin_func_name '(' ws head:expression ws
+          tail:(',' ws expression ws)*
+          ')' {
+            def ast_node
+              retval = [:call_func, func_name.text_value]
+              retval << Utils.find_ast_node_in_cst(head)
+              tail.elements.each do |group|
+                retval << Utils.find_ast_node_in_cst(group.expression)
+              end
+              retval
+            end
+          }
+        end
+
+        rule system_property
+          '.' ws name:([A-Za-z_]+) ws '(' ')' {
+            def ast_node
+              [:system_property, :name]
+            end
+          }
+        end
+
+        rule system_func
+          object:identifier ws system_property:system_property ws '.' ws property:identifier {
+            def ast_node
+              [:system_func, Utils.find_ast_node_in_cst(object), Utils.find_ast_node_in_cst(system_property), Utils.find_ast_node_in_cst(property)]
+            end
+          }
+        end
+
+        rule variable
+          identifier ws '.' ws identifier {
+            def ast_node
+              [:variable, Utils.find_ast_node_in_cst(elements[0]), Utils.find_ast_node_in_cst(elements[4])]
+            end
+          }
+        end
+
+        rule constant
+          exponent {
+            def ast_node
+              text_value.to_f
+            end
+          } / floating {
+            def ast_node
+              text_value.to_f
+            end
+          } / integer {
+            def ast_node
+              text_value.to_i
+            end
+          }
+        end
+
+        rule group
+          '(' ws expression ws ')' {
+            def ast_node
+              return expression.ast_node
+            end
+          }
+        end
+
+        rule integer
+          [0-9]+
+        end
+
+        rule floating
+          [0-9]+ '.' [0-9]+
+        end
+
+        rule exponent
+          (floating / integer) ('e' / 'E') (('-' integer) / ('+' integer) / integer)
+        end
+
+        rule identifier
+          [A-Za-z] [0-9A-Za-z_]* {
+            def ast_node
+              [:identifier, text_value]
+            end
+          }
+        end
+
+        rule negative
+          ('-' factor) {
+            def ast_node
+              [:negate, elements[1].ast_node]
+            end
+          }
+        end
+
+        rule ws
+          [ \t\r\n]*
+        end
+      end
+    end
+  end
+end
